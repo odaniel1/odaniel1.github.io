@@ -1,0 +1,12 @@
+name: "odaniel1.github.io"
+title: "Infrequently Frequentist"
+description: |
+  Infrequently Frequentist
+output_dir: "docs"
+navbar:
+  right:
+    - text: "Home"
+      href: index.html
+    - text: "About"
+      href: about.html
+output: distill::distill_article
