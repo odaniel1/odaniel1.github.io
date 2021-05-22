@@ -2,7 +2,7 @@ name: "odaniel1.github.io"
 title: "Infrequently Frequentist"
 description: |
   Infrequently Frequentist
-output_dir: "docs"
+output_dir: "."
 navbar:
   right:
     - text: "Home"
