@@ -1,5 +1,6 @@
 name: "odaniel1.github.io"
 title: "Infrequently Frequentist"
+theme: infreq_freq_theme.css
 description: |
   Infrequently Frequentist
 output_dir: "."
