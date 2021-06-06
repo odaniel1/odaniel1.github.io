@@ -1,0 +1,192 @@
+---
+title: "A Fully Bayesian Analysis of Broman's Socks"
+description: |
+  When Karl Broman tweeted about his laundry he likely didn't imagine that people would still be estimating how many socks he washed 7 years later. In this post my willingness to derive some exact formulae will enable a fully Bayesian, sampling free, approach to laundry quantification.
+date: 05-22-2021
+output:
+  distill::distill_article:
+    toc: true
+    toc_depth: 2
+  self_contained: false
+categories:
+  - Bayesian
+  - Discrete Probability
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(kableExtra)
+library(formattable)
+library(xaringanExtra)
+use_panelset()
+style_panelset_tabs(foreground = "hotpink", background = "blue")
+```
+
+```{r, broman-tweet, echo = FALSE}
+library(tweetrmd)
+include_tweet("https://twitter.com/kwbroman/status/523221976001679360")
+```
+
+I belatedly found my way to the puzzle of estimating exactly how many socks Karl Broman washed through Rasmus B&aring;&aring;th's excellent [blog post](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/), which uses the problem to illustrate Approximate Bayesian Computation^[B&aring;&aring;th's [blog post](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/) is a great starting point to learn more, but in short: Unlike standard Bayesian approaches, ABC doesn't require you to write a formula for the likelihood of your model. Instead you describe a sampling procedure that matches the intended distribution. Combining this with samples from a prior distribution enables an acceptance/rejection algorithm which generates samples from the posterior distribution.].
+
+Rasmus wraps-up the post by presenting three potential criticisms of his analysis, of which one is *Why use approximate Bayesian computation at all?* I'll take up his challenge and derive an explicit formula for the likelihood function, and carry out a Bayesian analysis without the need for sampling methods.
+
+
+
+I'll also propose an alternative model to take into account my personal further belief that the Tweet was made after the 11th sock, knowing that the twelfth sock was going to break the run of distinct socks!
+
+## Assumptions
+
+This post makes some assumptions about you: that you're interested in, and have some experience with, statistics and discrete probability.
+
+I'll assume that you're familiar that the specification of a Bayesian statistics: a model (the *likelihood*) that describes our understanding of how some data is generated, is combined with some initial assumptions about plausible parameter values (*prior distributions*) and combining these with observed data we can update our beliefs and draw conclusions (from *posterior distributions*). 
+
+To define the likelihood for this problem we'll need some common constructs from discrete probability/combinatorics: e.g. understanding of factorials, and binomial coefficients.
+
+## B&aring;&aring;th's Model
+
+Our aim is to estimate the total number of socks that Karl Broman washed on (or around) the 17th October 2014, given that the first 11 drawn from the machine were distinct. I'll use the following notation throughout:
+
+<aside>
+I use the convention that *data* is denoted by letters from the Roman alphabet, whilst unknown *parameters* use the Greek alphabet. 
+</aside>
+
+$$
+\begin{align*} \bf{\text{Data}}\\
+d & = \text{No. successive distinct socks observed before Tweeting}\\
+\\
+\bf{\text{Parameters}}\\
+\rho & = \text{No. pairs of socks in the wash}\\
+\sigma & = \text{No. singleton socks in the wash} \\
+\end{align*}
+$$
+
+For the specific case of the Tweet we have $d = 11$.
+
+Using two parameters $\rho$ and $\sigma$ allows us to handle the scenario that whilst most socks come in pairs, in some households stray singleton socks are not uncommon. We do however assume socks don't come in multiples of more than two (excluding the not-uncommon scenario in which two pairs of identical socks are washed).
+
+The likelihood, $L(d|\rho,\sigma)$, describes how the unknown parameters generate the obsered data: *Assuming there were $\rho$ pairs of socks and $\sigma$ singletons how likely is it that the first $d$ socks are all distinct?*
+
+As a warm up for deriving a complete formula, let's consider some of the edge cases. In particular the formula won't make sense for values of $d > 2\rho + \sigma$ as that means that more socks have been observed than were washed. So in that case the likelihood is 0. We can actually do better than that: there's a total of $\rho + \sigma$ different designs of socks in the wash, which means that at it would be impossible for $d > \rho + \sigma$, so again the likelihood would be $0$.
+
+With the edge cases handled, let's look at the formula for the interesting scenario when $1 \leq d \leq \rho + \sigma$.
+
+::::: {.panelset}
+
+::: {.panel}
+[Likelihood]{.panel-name}
+$$
+L(\rho,\sigma|d) = 
+\binom{2\rho + \sigma}{d}^{-1} \sum_{j=0}^{\sigma} 2^{d-j} \binom{\sigma}{j} \binom{\rho}{d-j}
+$$
+:::
+
+
+::: {.panel}
+[Likelihood and Examples]{.panel-name}
+$$
+L(\rho,\sigma|d) = 
+\binom{2\rho + \sigma}{d}^{-1} \sum_{j=0}^{\sigma} 2^{d-j} \binom{\sigma}{j} \binom{\rho}{d-j}
+$$
+
+As a *soft* check that the formula above is correct, let's take a look at some specific cases.
+
+#### Example: $\bf{\rho = 1, \, \sigma = 1, \,d = 2}$.
+This is the smallest non-trial scenario, and we can check this easily by hand. If we denote the socks by {S,P1,P2}, there are three ways to choose two of them: {S,P1}, {S,P2} and {P1,P2}. In two of the scenarios the socks are distinct, so the likelihood is 2/3.
+
+Plugging the parameters/data into the formula above:
+$$
+\begin{align}
+L(2,1|2) & =   \binom{3}{2}^{-1} \left\{ 2^2 \binom{1}{0}\binom{1}{2} + 2^1 \binom{1}{1}\binom{1}{1}\right\} = 3^{-1}\left(0 + 2\right)  = \frac23
+\end{align}
+$$
+
+#### Example: $\bf{\rho=3,\,\sigma=4, \, d = 4}$
+Whilst this example doesn't sound much more complex, crunching numbers directly would be pretty tedious (admittedly, tricky) as the denominator of the likelihood formula suggests there are 210 scenarios to check.
+
+Evaluating the formula for these parameters indicates the likelihood is 129/210 ~ 0.614.
+
+We can quickly validate this by simulating drawing four socks from 3 pairs and 4 singletons, and calculating the proportion of the draws that produced distinct socks.
+
+```{r, likelihood-draws, echo = TRUE}
+set.seed(1414214)
+
+rho <- 3
+sigma <- 4
+d <- 4
+
+# vector of all the socks
+all_socks <- c(rep(paste0("P",1:rho), 2), paste0("S", 1:sigma))
+
+# a function to sample d socks without replacement from all_socks, and return
+# 1 if all socks are distinct, and 0 otherwise
+sample_socks <- function(all_socks, d){
+  sock_sample <- sample(x = all_socks, size = d, replace = FALSE)
+  return( 1 * (length(sock_sample) == length(unique(sock_sample))) )
+}
+
+# draw samples 
+draws <- tibble(draw = map_dbl(1:1e05, ~sample_socks(all_socks, d)))
+```
+
+```{r,likelihood-draws-table}
+tribble(
+  ~var, ~value,
+  "No. Draws", nrow(draws) %>% digits(0, big.mark = ",") %>% as.character(),
+  "No. All Distinct", sum(draws$draw) %>% digits(0, big.mark = ",") %>% as.character(),
+  "Prob. All Distinct", (sum(draws$draw)/nrow(draws))  %>% digits(3) %>% as.character()
+) %>%
+kable("pipe", col.names = c("Summary", ""), align = "lr") %>%
+kable_styling(bootstrap_options = "condensed", full_width = FALSE, position = "center", font_size = 14)
+```
+:::
+
+
+::: {.panel}
+[Likelihood and Proof]{.panel-name}
+
+$$
+L(\rho,\sigma|d) = 
+\binom{2\rho + \sigma}{d}^{-1} \sum_{j=0}^{\sigma} 2^{d-j} \binom{\sigma}{j} \binom{\rho}{d-j}
+$$
+
+In words, the likelihood is given by the following fraction
+
+$$
+\frac{\text{No. ways to choose d }{\bf{distinct}}\text{ socks from $\rho$ pairs and $\sigma$ singletons.}}{\text{No. ways to choose d socks from  $\rho$ pairs and $\sigma$ singletons.}} 
+$$
+
+Starting with the denominator, this is none other than the total number of ways to choose $d$ objects without replacement from a total of $2 \rho + \sigma$ (the factor of two is because $\rho$ pairs of socks equates to $2 \rho$ individual socks). That is given by the binomial coefficient $\binom{2\rho + \sigma}{d}$, and explains the leading term in the likelihood formula above.
+
+Turning to the numerator, I'll break this down by conditioning on the number of singleton socks. I.e. we'll count
+
+$$\text{No. of ways to choose $d$ distinct socks, given that $j$ of them are singletons.}$$
+
+Starting with the sigletons, there are $\binom{\sigma}{j}$ ways to choose exactly $j$ of these. The remaining $d-j$ socks need to come from the pairs, there are $\rho$ distinct socks that form $2\rho$ pairs, so there are $\binom{\rho}{d-j}$ ways to choose the *type* of socks. But then for each of these $d-j$ socks we need an additional factor of 2 as we could have chosen between two (left, and right?) socks. Bringing this together, we have:
+
+$$2^{d-j}\binom{\rho}{d-j}\binom{\sigma}{j}.$$
+
+The full formula for numerator, and then the likelihood, follows by summing over the possible values of $j = 0,\ldots,\sigma$. 
+
+For a similar proof, I previously posted an answer to a question on [Cross Validated](https://stats.stackexchange.com/questions/469677/closed-form-of-pairing-probability/469707#469707) with a slightly different sock related problem.
+
+
+
+
+:::
+
+:::::
+
+
+### Deriving the Likelihood
+
+### Factored Prior
+
+### B&aring;&aring;th's prior
+
+## Stopping Time Model
+
+
