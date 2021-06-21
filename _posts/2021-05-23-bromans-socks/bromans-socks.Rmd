@@ -21,6 +21,7 @@ library(tidyverse)
 library(kableExtra)
 library(formattable)
 library(xaringanExtra)
+library(infreqthemes)
 use_panelset()
 style_panelset_tabs(foreground = "hotpink", background = "blue")
 ```
@@ -32,9 +33,7 @@ include_tweet("https://twitter.com/kwbroman/status/523221976001679360")
 
 I belatedly found my way to the puzzle of estimating exactly how many socks Karl Broman washed through Rasmus B&aring;&aring;th's excellent [blog post](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/), which uses the problem to illustrate Approximate Bayesian Computation^[B&aring;&aring;th's [blog post](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/) is a great starting point to learn more, but in short: Unlike standard Bayesian approaches, ABC doesn't require you to write a formula for the likelihood of your model. Instead you describe a sampling procedure that matches the intended distribution. Combining this with samples from a prior distribution enables an acceptance/rejection algorithm which generates samples from the posterior distribution.].
 
-Rasmus wraps-up the post by presenting three potential criticisms of his analysis, of which one is *Why use approximate Bayesian computation at all?* I'll take up his challenge and derive an explicit formula for the likelihood function, and carry out a Bayesian analysis without the need for sampling methods.
-
-
+Rasmus wraps-up the post by presenting three potential criticisms of his analysis, of which one is *Why use approximate Bayesian computation at all?* I'll take up his challenge and derive an explicit formula for the likelihood function, enabling a Bayesian analysis without the need for sampling methods.
 
 I'll also propose an alternative model to take into account my personal further belief that the Tweet was made after the 11th sock, knowing that the twelfth sock was going to break the run of distinct socks!
 
@@ -42,13 +41,15 @@ I'll also propose an alternative model to take into account my personal further 
 
 This post makes some assumptions about you: that you're interested in, and have some experience with, statistics and discrete probability.
 
-I'll assume that you're familiar that the specification of a Bayesian statistics: a model (the *likelihood*) that describes our understanding of how some data is generated, is combined with some initial assumptions about plausible parameter values (*prior distributions*) and combining these with observed data we can update our beliefs and draw conclusions (from *posterior distributions*). 
+I'll assume that you're familiar twith the concepts of Bayesian statistics: a model (the *likelihood*) describes our understanding of how some data is generated,  it can be combined with initial assumptions about plausible parameter values (*prior distributions*) and combining these with observed data leads to refined assumptions(*posterior distributions*). 
 
-To define the likelihood for this problem we'll need some common constructs from discrete probability/combinatorics: e.g. understanding of factorials, and binomial coefficients.
+To follow the derivation of the likelihood you'll need to know some common constructs from discrete probability/combinatorics: e.g. understanding of binomial coefficients, and how these relate to counting problems.
 
 ## B&aring;&aring;th's Model
 
-Our aim is to estimate the total number of socks that Karl Broman washed on (or around) the 17th October 2014, given that the first 11 drawn from the machine were distinct. I'll use the following notation throughout:
+Our aim is to estimate the total number of socks that Karl Broman washed on the 17th October 2014, given that he tweeted that the first 11 he removed from the washing machine were distinct.
+
+I'll use the following notation throughout:
 
 <aside>
 I use the convention that *data* is denoted by letters from the Roman alphabet, whilst unknown *parameters* use the Greek alphabet. 
@@ -70,9 +71,15 @@ Using two parameters $\rho$ and $\sigma$ allows us to handle the scenario that w
 
 The likelihood, $L(d|\rho,\sigma)$, describes how the unknown parameters generate the obsered data: *Assuming there were $\rho$ pairs of socks and $\sigma$ singletons how likely is it that the first $d$ socks are all distinct?*
 
-As a warm up for deriving a complete formula, let's consider some of the edge cases. In particular the formula won't make sense for values of $d > 2\rho + \sigma$ as that means that more socks have been observed than were washed. So in that case the likelihood is 0. We can actually do better than that: there's a total of $\rho + \sigma$ different designs of socks in the wash, which means that at it would be impossible for $d > \rho + \sigma$, so again the likelihood would be $0$.
+As a warm up for deriving a complete formula, let's consider some of the edge cases which have fun logical heuristics:
 
-With the edge cases handled, let's look at the formula for the interesting scenario when $1 \leq d \leq \rho + \sigma$.
+|Scenario |  Heuristic | Likelihood $L(d|\rho,\sigma)$ |
+|---|---|:-:|
+|$\rho, \, \sigma < 0$ | Let's not be silly: you can't have negative socks. | 0 |
+|$d > 2\rho + \sigma$ |  Broman can't have observed more socks than he washed. |0 |
+|$d > \rho + \sigma$  | Broman can't have observed more **distinct** socks than the number of distinct socks that he washed.|0 |
+
+With the edge cases handled, let's press on and handle the meatier problem.
 
 ::::: {.panelset}
 
@@ -86,7 +93,7 @@ $$
 
 
 ::: {.panel}
-[Likelihood and Examples]{.panel-name}
+[Examples]{.panel-name}
 $$
 L(\rho,\sigma|d) = 
 \binom{2\rho + \sigma}{d}^{-1} \sum_{j=0}^{\sigma} 2^{d-j} \binom{\sigma}{j} \binom{\rho}{d-j}
@@ -146,7 +153,7 @@ kable_styling(bootstrap_options = "condensed", full_width = FALSE, position = "c
 
 
 ::: {.panel}
-[Likelihood and Proof]{.panel-name}
+[Proof]{.panel-name}
 
 $$
 L(\rho,\sigma|d) = 
@@ -172,21 +179,178 @@ $$2^{d-j}\binom{\rho}{d-j}\binom{\sigma}{j}.$$
 The full formula for numerator, and then the likelihood, follows by summing over the possible values of $j = 0,\ldots,\sigma$. 
 
 For a similar proof, I previously posted an answer to a question on [Cross Validated](https://stats.stackexchange.com/questions/469677/closed-form-of-pairing-probability/469707#469707) with a slightly different sock related problem.
+:::
+
+:::::
+
+## Visualising the Likelihood, and Computational Considerations
+
+We've done the hard work to derive and validate the likelihood, and an immediate question is *What does that function actually look like?*.
+
+One challenge we face when trying to evaluate the formula above is that the number of combinations quickly becomes very large - and that puts us at risk of integer overflow.
+
+Take for example the case $\rho = 20,\,\sigma=10,\,d=11$, which is not an implausible scenario Using R to calculate just the denominator returns a figure of `r formattable::comma(choose(50,11),digits=0)` - which is well in excess of the maximum integer R can work with.
+
+<aside>
+You can check R's max integer with: `.Machine$integer.max` which at time of writing returns `r formattable::comma(.Machine$integer.max,digits=0)`
+</aside>
+
+Okay - my conscience (and awareness that this is googleable) forces me to be honest: we can get around this particular integer overflow risk by using R's `as.double()` to cast integers to double precision numbers which can handle values up to $2 \times 10^{308}$. And now that I'm coming clean, R's built in binomial functions *already* does this conversion for us...
+
+But its still good practice to think through these types of computational risks, and actively avoid them. We'll make use of two computational tricks to avoid any risk of falling foul of overflow problems.
+
+The first trick will likely be familiar if you learnt maths or computer science [since the early 17th Century](https://en.wikipedia.org/wiki/History_of_logarithms): logarithms turn unfathomably large multiplications into reasonable summations. So rather than working with the likelihood, we'll use the *log-likelihood*:
+
+$$l(d|\rho,\,\sigma) = \log L(d|\rho,\,\sigma).$$
+Working on the log scale plays nicely with Bayesian statistics, changing Bayes rule from: *the posterior is proportional to the prior <i><b>times</i></b> the likelihood*, to the alternative, but admittedly not so memorable *the log-posterior is equal to the log-prior <i><b>plus</i></b> the log-likelihood, plus a constant*.
+
+Logarithms are great as they turn multiplication into addition - but when we write down the log-likelihood, the issue we now face is that there's addition **inside** the logarithm:
+
+$$l(d|\rho,\sigma) = -\log \textstyle{\binom{2\rho + \sigma}{d}} + \log \bigg(\textstyle \sum_{j=0}^{\sigma} 2^{d-j} \binom{\sigma}{j} \binom{\rho}{d-j}\bigg)$$
+
+If we naively go ahead and calculate that sum and then take logs - then we won't avoid the risk of overflow at all: we'd still calculate a sum of large integers, and then taking the logarithm is an after thought.
+
+What we really want to do is take the logarithm of the terms *inside* the summation - which will return values well within R's comfort zone. So more generally, we want to turn a computation of the form $\log \left( x_1 + \cdots + x_n\right)$ into a calculation in $\log(x_1),\ldots, \log(x_n)$.
+
+This is where trick number two comes in: the *log-sum-exp* trick.
+
+::::: {.panelset}
+
+::: {.panel}
+[Log-Sum-Exp Trick]{.panel-name}
+Given $x_1,\ldots,x_n > 0$, let $l_k = \log(x_k)$ and $l^* = \max_k l_k$. Then
+
+$$
+\log(x_1 + \cdots +  x_n) =  l^* + \log \bigg ( \exp(l_1 - l^*) + \cdots + \exp(l_n - l^*)\bigg)
+$$
+:::
+
+::: {.panel}
+[Example]{.panel-name}
+Given $x_1,\ldots,x_n > 0$, let $l_k = \log(x_k)$ and $l^* = \max_k l_k$. Then
+
+$$
+\log(x_1 + \cdots +  x_n) =  l^* + \log \bigg ( \exp(l_1 - l^*) + \cdots + \exp(l_n - l^*)\bigg)
+$$
+
+Let's apply the trick in the context of calculating the log-likelihood $l(d = 11 | \sigma = 2, \rho = 30 )$, which is
+
+$$
+l(11 | 2,30) = -\log \textstyle  \binom{62}{11} + \log \bigg(2^{11} \binom{2}{0}\binom{30}{11} + 2^{10} \binom{2}{1}\binom{30}{10} + 2^{9} \binom{2}{2}\binom{30}{9} \bigg).
+$$
+
+If we do this by brute force, using R to evaluate each of the powers, and binomial coefficients this becomes:
+
+```{r}
+binomial_term <- function(j){2^(11-j) * choose(2,j) * choose(30,11-j)}
+log_binomial_term <- function(j){(11-j)*log(2) + lchoose(2,j) + lchoose(30,11-j)}
+```
+
+$$
+\begin{align}
+ l(11|2,30) & = -\log `r format(choose(62,11), digits = 12)` \\
+ & \qquad + \log \big ( 
+  `r format(binomial_term(0), digits = 12)` + `r format(binomial_term(1), digits = 12)` + `r format(binomial_term(2), digits = 12)`
+ \big) \\
+ & = - `r format( lchoose(62,11), digits = 4)` + `r format( log( binomial_term(0) + binomial_term(1) + binomial_term(2)),  digits = 4)` \\
+ & = `r format( - lchoose(62,11) + log( binomial_term(0) + binomial_term(1) + binomial_term(2)),  digits = 4 )`
+\end{align}$$
 
 
+And back on the natural scale, that implies a likelihood of $L(11 |2,30) \approx `r format( exp( - lchoose(62,11) + log( binomial_term(0) + binomial_term(1) + binomial_term(2)) ) , digits = 2)`$.
 
+The bit that feels uncomfortable there is the sum of all those +10 digit numbers - and in real cases we could be summing more terms - each with more digits. So now let's see how that looks using the log-sum-exp trick.
+
+As per the statement above, we'll first calculate the log of each of the terms (and include the denominator term, denoted $A$ here, which we'll need for the full calculation):
+
+```{r}
+A <-  lchoose(62,11)
+l1 <- log_binomial_term(0)
+l2 <- log_binomial_term(1)
+l3 <- log_binomial_term(2)
+```
+$$
+\begin{align}
+\textstyle \log \binom{62}{11} & = A  \approx `r digits(A,digits = 4)` \\
+\textstyle \log 2^{11} \binom{2}{0}\binom{30}{11} &= l_1 \approx `r digits(l1,digits = 4)` \\
+\textstyle \log  2^{10} \binom{2}{1}\binom{30}{10} &= l_2 \approx `r digits(  l2,digits = 4)` \\
+\textstyle \log 2^{9} \binom{2}{2}\binom{30}{9} &= l_3 \approx `r digits(  l3, digits = 4)` \\
+\end{align}
+$$
+The maximum is $l^* = l_1$, and we can go ahead and apply the trick:
+$$
+\begin{align}
+l(11|2,30) & = - A + l^* + \log \big ( e^{l_1 - l^*} + e^{l_2 - l^*} + e^{l_3 - l^*}\big) \\
+& = `r format(-A + l1, digits = 4)` + \log \big( e^{`r 0`} + e^{`r format(l2 - l1,digits = 4)`} + e^{`r format(l3 - l1,digits = 4)`} \big) \\
+& = `r format(-A + l1, digits = 4)` + \log \big( 1+ {`r format(exp(l2 - l1),digits = 4)`} + {`r format(exp(l3 - l1),digits = 4)`} \big) \\
+& = `r format(-A + l1, digits = 4)` + `r format(log( 1 + exp(l2 - l1) + exp(l3 - l1)),digits = 4)` \\
+& =  `r format(-A + l1 + log( 1 + exp(l2 - l1) + exp(l3 - l1)),digits = 4)`
+\end{align}
+$$
+
+As expected we get exactly the same result - with the benefit that the largest value we used in any of the sums was $A \approx `r format(A, digits = 4)`$.
+
+:::
+
+
+::: {.panel}
+[Proof]{.panel-name}
+Given $x_1,\ldots,x_n > 0$, let $l_k = \log(x_k)$ and $l^* = \max_k l_k$. Then
+
+$$
+\log(x_1 + \cdots +  x_n) =  l^* + \log \bigg ( \exp(l_1 - l^*) + \cdots + \exp(l_n - l^*)\bigg)
+$$
 
 :::
 
 :::::
 
+```{r}
+baath_ll <- function(rho,sigma,d){
+  
+  # it is not possible to choose more than p+s distinct socks
+  if(d > rho + sigma) return(-Inf)
+  
+  # log likelihood terms for the log-sum-exp trick.
+  f <- purrr::map(0:d, function(j){
+    (d-j)*log(2) + lchoose(sigma,j) + lchoose(rho,d-j) - lchoose(2*rho + sigma,d)
+  })
+  
+  # the log likelihood
+  ll <- matrixStats::logSumExp(f)
+  
+  return(ll)
+}
 
-### Deriving the Likelihood
+ll_grid <- function(rho_max,sigma_max,d, ll_fun, prior = NULL){
+  
+  grid <- crossing(p = 0:rho_max, s = 0:sigma_max, d = d) %>%
+    rowwise() %>% 
+    mutate(ll = ll_fun(p,s,d)) %>%
+    ungroup()
+  
+  return(grid)
+}
 
-### Factored Prior
+# mle <- socks_likelihood_grid(p_max = 30, s_max = 20, k = 11)
+# mle_plot <- grid_plot(mle, 2*p,s,ll) +
+#   labs(
+#     title = "The log likelihood",
+#     x = "2p - Total socks that are in pairs",
+#     y = "s - Singleton socks",
+#     colour = "Log Likelihood"
+#   )
+```
+</details>
 
-### B&aring;&aring;th's prior
+```{r, fig.align='center', echo = FALSE}
+# mle_plot
+```
 
-## Stopping Time Model
+## Posterior Parameter Estimation
+
+We've done the hard work to derive and validate the likelihood, and now can reap the benefits: in this section I'll choose a prior distribution, and combine with the likelihood to get our posterior distribution on the number of socks Karl Broman washed. Along the way I'll talk through some subtleties you can employ to avoid numerical instability when calculating small probabilities.
+
+
 
 
