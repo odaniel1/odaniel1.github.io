@@ -1,5 +1,6 @@
 name: "odaniel1.github.io"
 title: "Infrequently Frequentist"
+theme: infreq_freq_theme.css
 description: |
   Infrequently Frequentist
 output_dir: "."
@@ -9,4 +10,6 @@ navbar:
       href: index.html
     - text: "About"
       href: about.html
+    - icon: fab fa-github
+      href: https://github.com/odaniel1/odaniel1.github.io
 output: distill::distill_article
