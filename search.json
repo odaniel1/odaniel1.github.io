@@ -3,17 +3,17 @@
     {
       "path": "about.html",
       "title": "About this blog",
-      "description": "Some additional details about the blog",
+      "description": "What exactly this blog is about is still to be decided.",
       "author": [],
       "contents": "\n\n\n\n",
-      "last_modified": "2021-06-06T15:42:50+01:00"
+      "last_modified": "2021-06-25T09:32:29+01:00"
     },
     {
       "path": "index.html",
       "title": "Infrequently Frequentist",
       "author": [],
       "contents": "\n\n\n\n",
-      "last_modified": "2021-06-21T19:02:34+01:00"
+      "last_modified": "2021-06-25T09:32:30+01:00"
     }
   ],
   "collections": ["posts/posts.json"]
