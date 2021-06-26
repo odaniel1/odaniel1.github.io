@@ -160,6 +160,8 @@ L(\rho,\sigma|d) =
 \binom{2\rho + \sigma}{d}^{-1} \sum_{j=0}^{\sigma} 2^{d-j} \binom{\sigma}{j} \binom{\rho}{d-j}
 $$
 
+#### Proof
+
 In words, the likelihood is given by the following fraction
 
 $$
@@ -233,7 +235,9 @@ $$
 \log(x_1 + \cdots +  x_n) =  l^* + \log \bigg ( \exp(l_1 - l^*) + \cdots + \exp(l_n - l^*)\bigg)
 $$
 
-Let's apply the trick in the context of calculating the log-likelihood $l(d = 11 | \sigma = 2, \rho = 30 )$, which is
+#### Example: $\bf{\rho = 30, \, \sigma = 2, \,d = 11}$.
+
+This particular set of parameters admits a relatively concise likelihood, which will help us to write the complete formulae, starting with the log-likelihood:
 
 $$
 l(11 | 2,30) = -\log \textstyle  \binom{62}{11} + \log \bigg(2^{11} \binom{2}{0}\binom{30}{11} + 2^{10} \binom{2}{1}\binom{30}{10} + 2^{9} \binom{2}{2}\binom{30}{9} \bigg).
@@ -300,6 +304,8 @@ Given $x_1,\ldots,x_n > 0$, let $l_k = \log(x_k)$ and $l^* = \max_k l_k$. Then
 $$
 \log(x_1 + \cdots +  x_n) =  l^* + \log \bigg ( \exp(l_1 - l^*) + \cdots + \exp(l_n - l^*)\bigg)
 $$
+
+#### Proof
 
 :::
 
