@@ -17,13 +17,95 @@ categories:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(matrixStats) # loaded first to avoid conflict with dplyr::count
 library(tidyverse)
 library(kableExtra)
 library(formattable)
 library(xaringanExtra)
 library(infreqthemes)
+library(cowplot)
+library(gganimate)
 use_panelset()
 style_panelset_tabs(foreground = "hotpink", background = "blue")
+```
+
+```{r utility-functions, eval = TRUE, echo = FALSE}
+# function to calculate grid of log posterior probabilities.
+#   - if prior_func = NULL returns the likelihood,
+#   - if likelihood_func = NULL returns the prior distribution
+calculate_sock_grid <- function(rho_max,sigma_max, log_likelihood = NULL, log_prior = NULL){
+    
+  if(is.null(log_likelihood) & is.null(log_prior)){
+    stop("At least one of log_likelihood or log_prior must be provided")
+  }
+
+  # initialise grid
+  grid <- crossing(
+      rho = 0:rho_max,
+      sigma = 0:sigma_max,
+      log_likelihood = NA_real_,
+      log_prior = NA_real_,
+      log_posterior = NA_real_
+    ) %>% rowwise()
+  
+
+  # populate prior/likelihood
+  if(!is.null(log_likelihood)){
+    grid <- grid %>% mutate(log_likelihood = log_likelihood(rho,sigma))
+  }
+  
+  if(!is.null(log_prior)){
+    grid <- grid %>% mutate(log_prior = log_prior(rho,sigma))
+  }
+  
+  # populate posterior, first calculating without the additive constant, Z, then
+  # evaluating this and adding.
+  grid <- grid %>% mutate(prop_log_posterior = log_likelihood + log_prior)
+  
+  log_Z <- logSumExp(grid$prop_log_posterior)
+    
+  grid <- grid %>% 
+    mutate(log_posterior = -log_Z + prop_log_posterior) %>%
+    select(-prop_log_posterior)
+    
+  # calculate non-log terms
+  grid <- grid %>%
+    mutate(across(starts_with("log_"), ~exp(.), .names = "exp_{col}")) %>%
+    rename_with(~str_remove(.,"exp_log_"))
+  
+  return(grid)
+}
+
+plot_sock_grid <- function(grid, var){
+  
+  var_name <- rlang::as_name(enquo(var))
+  
+  if(str_detect(var_name, "log")){
+    
+    filled_grid <- grid %>% filter(!is.infinite({{var}}))
+    empty_grid <- grid %>% filter(is.infinite({{var}}))
+  } else {
+    filled_grid <- grid %>% filter(({{var}} != 0))
+    empty_grid <- grid %>% filter(({{var}} == 0))
+  }
+  
+  p <- ggplot() +
+    geom_point(data =filled_grid,aes(x = rho, y = sigma, color ={{var}}), size =4) +
+    geom_point(data = empty_grid, aes(x = rho, y = sigma, ), color = "grey", shape = 1, size =4) +
+    scale_x_continuous(breaks = seq(0,max(grid$rho),by=10)) +
+    scale_y_continuous(breaks = seq(0,max(grid$sigma),by=10)) +
+    scale_color_gradientn(
+      colours = wesanderson::wes_palette("Zissou1", 1000, type = "continuous"),
+      name = "") +
+    coord_fixed() + 
+    labs(x = "ρ", y = "σ") +
+    theme(
+      axis.title.y = element_text(angle = 0, vjust = 0.5),
+      axis.line = element_blank(), legend.key.width = unit(1.4, "cm")
+    )
+ 
+ return(p)
+}
 ```
 
 ```{r, broman-tweet, echo = FALSE}
@@ -31,23 +113,23 @@ library(tweetrmd)
 include_tweet("https://twitter.com/kwbroman/status/523221976001679360")
 ```
 
-I belatedly found my way to the puzzle of estimating exactly how many socks Karl Broman washed through Rasmus B&aring;&aring;th's excellent [blog post](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/), which uses the problem to illustrate Approximate Bayesian Computation^[B&aring;&aring;th's [blog post](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/) is a great starting point to learn more, but in short: Unlike standard Bayesian approaches, ABC doesn't require you to write a formula for the likelihood of your model. Instead you describe a sampling procedure that matches the intended distribution. Combining this with samples from a prior distribution enables an acceptance/rejection algorithm which generates samples from the posterior distribution.].
+I belatedly found my way to the puzzle of estimating exactly how many socks Karl Broman washed through Rasmus B&aring;&aring;th's excellent [blog post](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/), which uses the problem to illustrate Approximate Bayesian Computation.
 
 Rasmus wraps-up the post by presenting three potential criticisms of his analysis, of which one is *Why use approximate Bayesian computation at all?* I'll take up his challenge and derive an explicit formula for the likelihood function, enabling a Bayesian analysis without the need for sampling methods.
 
-I'll also propose an alternative model to take into account my personal further belief that the Tweet was made after the 11th sock, knowing that the twelfth sock was going to break the run of distinct socks!
+I'll also propose an alternative model to take into account my personal belief that the Tweet was sent in the knowledge that the twelfth sock was going to break the run of distinct socks!
 
 ## Assumptions
 
-This post makes some assumptions about you: that you're interested in, and have some experience with, statistics and discrete probability.
+This post makes some assumptions about you: that you have some experience with (or a willingness to learn) statistics and discrete probability.
 
-I'll assume that you're familiar twith the concepts of Bayesian statistics: a model (the *likelihood*) describes our understanding of how some data is generated,  it can be combined with initial assumptions about plausible parameter values (*prior distributions*) and combining these with observed data leads to refined assumptions(*posterior distributions*). 
+I'll assume that you're familiar twith the concepts of Bayesian statistics: a model (the *likelihood*) describes our understanding of how some data is generated,  it can be combined with initial assumptions about plausible parameter values (*prior distributions*) and combining these with observed data leads to refined assumptions (*posterior distributions*). 
 
 To follow the derivation of the likelihood you'll need to know some common constructs from discrete probability/combinatorics: e.g. understanding of binomial coefficients, and how these relate to counting problems.
 
 ## B&aring;&aring;th's Model
 
-Our aim is to estimate the total number of socks that Karl Broman washed on the 17th October 2014, given that he tweeted that the first 11 he removed from the washing machine were distinct.
+Our aim is to estimate the total number of socks that Karl Broman washed given his Tweet that the first 11 removed from the washing machine were distinct.
 
 I'll use the following notation throughout:
 
@@ -76,10 +158,12 @@ As a warm up for deriving a complete formula, let's consider some of the edge ca
 |Scenario |  Heuristic | Likelihood $L(d|\rho,\sigma)$ |
 |---|---|:-:|
 |$\rho, \, \sigma < 0$ | Let's not be silly: you can't have negative socks. | 0 |
-|$d > 2\rho + \sigma$ |  Broman can't have observed more socks than he washed. |0 |
-|$d > \rho + \sigma$  | Broman can't have observed more **distinct** socks than the number of distinct socks that he washed.|0 |
+|$d > 2\rho + \sigma$ |  We can't observe more socks than were washed. |0 |
+|$d > \rho + \sigma$ | We can't observe more **distinct** socks than the number of distinct socks that were washed.|0 |
+|$\rho = 0, \, \sigma \geq d$ | If all the socks were different, then of course all the observed socks are different. | 1 |
 
-With the edge cases handled, let's press on and handle the meatier problem.
+
+With the edge cases handled, let's press on and handle the substantive problem.
 
 ::::: {.panelset}
 
@@ -185,34 +269,365 @@ For a similar proof, I previously posted an answer to a question on [Cross Valid
 
 :::::
 
-## A Detour Into Computational Considerations
+In practice when evaluating the likelihood (and later the posterior distribution) there are some computational tricks we employ to avoid running into problems of integer overlflow; these are detailed in the [end-notes](#computational-considerations).
 
-We've done the hard work to derive and validate the likelihood, and an immediate question is *What does that function actually look like?*
+In the plot below we visualise the likelihood for the case of interest, $d = 11$.
 
-One challenge we face when trying to evaluate the formula above is that the number of combinations quickly becomes very large - and that puts us at risk of integer overflow.
+```{r baath-likelihood, fig.height=6, echo = TRUE, code_folding = TRUE}
 
-Take for example the case $\rho = 20,\,\sigma=10,\,d=11$, which is not an implausible scenario Using R to calculate just the denominator returns a figure of `r formattable::comma(choose(50,11),digits=0)` - which is well in excess of the maximum integer R can work with.
+# log likelihood for Baath's model
+baath_log_likelihood <- function(rho, sigma, d){
+  
+  # it is not possible to choose more than p+s distinct socks
+  if(d > rho + sigma) return(-Inf)
+  
+  # log summation terms, for the log-sum-exp trick.
+  log_summation_terms <- purrr::map(0:min(d, sigma), function(j){
+    (d-j)*log(2) + lchoose(sigma,j) + lchoose(rho,d-j)
+  })
+  
+  log_likelihood <- -lchoose(2*rho + sigma,d) +  logSumExp(log_summation_terms)
+  
+  return(log_likelihood)
+}
+
+# compute grid of likelihood values, fix d = 11
+baath_likelihood_grid <- calculate_sock_grid(30, 20, log_likelihood = function(rho,sigma){baath_log_likelihood(rho,sigma,d=11)})
+
+# plot likelihood grid
+plot_sock_grid(baath_likelihood_grid, var = likelihood)
+```
 
 <aside>
-You can check R's max integer with: `.Machine$integer.max` which at time of writing returns `r formattable::comma(.Machine$integer.max,digits=0)`
+B&aring;&aring;th's Likelihood
 </aside>
 
-Okay - my conscience (and awareness that this is googleable) forces me to be honest: we can get around this particular integer overflow risk by using R's `as.double()` to cast integers to double precision numbers which can handle values up to $2 \times 10^{308}$. And now that I'm coming clean, R's built in binomial functions *already* does this conversion for us...
+The plot demonstrates why a frequentist, maximum likelihood estimate (MLE) approach to solving this problem is bound to fail: the likelihood is maximised, and equal to 1, in all the scenarios that $\sigma \geq 11$, and $\rho = 0$.
 
-But its still good practice to think through these types of computational risks, and actively avoid them. We'll make use of two computational tricks to avoid any risk of falling foul of overflow problems.
+Even if we introduced a constraint that $\rho > 0$, this just pushes MLE to return a solution at the limits $\rho,\sigma \rightarrow \infty$.
 
-The first trick will likely be familiar if you learnt maths or computer science [since the early 17th Century](https://en.wikipedia.org/wiki/History_of_logarithms): logarithms turn unfathomably large multiplications into reasonable summations. So rather than working with the likelihood, we'll use the *log-likelihood*:
 
-$$l(d|\rho,\,\sigma) = \log L(d|\rho,\,\sigma).$$
-Working on the log scale plays nicely with Bayesian statistics, changing Bayes rule from: *the posterior is proportional to the prior <i><b>times</i></b> the likelihood*, to the alternative, but admittedly not so memorable *the log-posterior is equal to the log-prior <i><b>plus</i></b> the log-likelihood, plus a constant*.
+## From Prior to Posterior
 
-Logarithms are great as they turn multiplication into addition - but when we write down the log-likelihood, the issue we now face is that there's addition **inside** the logarithm:
+To avoid getting stuck in trivial edge scenarios, I'll introduce a prior distribution over $(\rho,\sigma)$, and conduct a Bayesian Analysis. The prior captures our beliefs about the number of socks in the washing machine, in absence of any data.
+
+I'll put separate priors on the number of singleton and pairs of socks, and then add a restriction that the total socks can't exceed a fixed (large) amount. This differs from Rasmus' approach, but produces formulae that are easier to work with: since Rasmus was using sampling, complexity in the formulae wasn't an issue.
+
+<aside>It is possible to derive a formula for Rasmus' prior - but its messy! For the really invested, see the [footnotes](#bååths-prior).
+</aside>
+
+Capping the maximum number of socks will be required to get an exact value for the normalising constant that turns up in using Bayes rule. If we denote $p(\rho,\sigma)$ for the prior distribution, $p(\rho, \sigma) |d)$ for the posterior distribution, and $L(d|\rho,\sigma)$ the likelihdood as before, then Bayes rule gives
+
+$$p(\rho,\sigma | d) = Z^{-1}L(d | \rho, \sigma) p(\rho,\sigma), \qquad \text{where } Z = \sum_{\rho,\sigma} L(d | \rho, \sigma) p(\rho,\sigma).$$
+By constraining the prior to a finite range the normalising constant $Z$ can be calculated without estimating tail behaviour. This capping is hardly restrictive: after all in practice washing machines can't hold arbitrarily many socks! 
+
+The prior distribution on $\rho$ and $\sigma$ should be a discrete distribution, on the positive integers. Like Rasmus I'll use Negative Binomial distributions, which are a flexible generalisation of the Poisson distribution, allowing us to separately control the mean and variance.
+
+```{r nb-params}
+r_rho_int <- 3
+r_rho_num <- 1
+r_rho_denom <- 4
+r_rho <- r_rho_int + r_rho_num/r_rho_denom
+p_rho_num <- 1
+p_rho_denom <- 5
+p_rho <- p_rho_num/p_rho_denom
+mu_rho <- r_rho * (1-p_rho)/p_rho
+var_rho <- mu_rho/p_rho
+
+r_sigma <- 2
+p_sigma_num <- 1
+p_sigma_denom <- 3
+p_sigma <- p_sigma_num/p_sigma_denom
+mu_sigma <- r_sigma * (1-p_sigma)/p_sigma
+var_sigma <- mu_sigma/p_sigma
+```
+
+I'll choose parameters for the Negative Binomial distributions so that that the marginal distributions of the product prior closely match those of Rasmus' prior, which [he derived](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/#prior-sock-distributions) based on assumptions about the plausible amount of washing a family might produce. This leads to me using the priors:
+
+<aside> Parameters were found using the [Method of Moments](https://en.wikipedia.org/wiki/Method_of_moments_(statistics)) and then rounded to give *nice* values</aside>
+
+$$\rho \sim \text{NegBinom}\left(`r r_rho_int` \frac{`r r_rho_num`}{`r r_rho_denom`}, \frac{`r p_rho_num`}{`r p_rho_denom`}\right), \qquad \sigma \sim \text{NegBinom}\left(`r r_sigma`, \frac{`r p_sigma_num`}{`r p_sigma_denom`}\right),$$
+
+I'll also cap the maximum number of socks that could plausibly have been washed at 300. Googling the average weight of a sock returns a range of estimates, but I'll errr on the lower side and say a sock ways 50g. 300 socks would therefore come in at 15kg, which is the maximum drum size of any domestic washing machine I could find on Amazon!
+
+Writing out the prior explicitly gives:
+
+$$p(\rho,\sigma) = \textstyle \mathbf{\large 1}_{2\rho + \sigma \leq 300} \, \times \, \binom{\rho + `r r_rho_int - 1`\frac{`r r_rho_num`}{`r r_rho_denom`}}{\rho} \left(1 - \frac{`r p_rho_num`}{`r p_rho_denom`}\right)^{`r r_rho_int` \frac{`r r_rho_num`}{`r r_rho_denom`}} \left(\frac{`r p_rho_num`}{`r p_rho_denom`}\right)^{\rho} \,\,\times\,\, \binom{\sigma + `r r_sigma - 1`}{\sigma} \left(1 - \frac{`r p_sigma_num`}{`r p_sigma_denom`}\right)^{`r r_sigma`} \left(\frac{`r p_sigma_num`}{`r p_sigma_denom`}\right)^{\sigma}$$
+
+The plots/table below compare samples from the product prior and the prior Rasmus uses.
+
+```{r prior-samples, cache = TRUE}
+sample_size <- 1e06
+
+independent_prior_samples <- tibble(sample = 1:sample_size) %>%
+  transmute(
+    prior = "Product",
+    rho = rnbinom(n(), mu = mu_rho, size = r_rho),
+    sigma = rnbinom(n(),mu = mu_sigma, size = r_sigma),
+    n = 2 * rho + sigma,
+    theta = sigma/n
+  ) %>% filter(n < 300)
+
+baath_prior_samples <- tibble(sample = 1:sample_size) %>%
+  transmute(
+    prior = "Bååth",
+    n = rnbinom(n(), mu = 30, size = 4.615),
+    theta = rbeta(n(), shape1 = 2, shape2 = 15),
+    rho = round(floor(n / 2) * (1-theta)),
+    sigma = n - 2 * rho
+  )
+
+prior_samples <- bind_rows(independent_prior_samples, baath_prior_samples) 
+```
+
+::::: {.panelset}
+
+::: {.panel}
+[Marginals]{.panel-name}
+
+```{r prior-comparison-plot, cache = TRUE}
+# function used for each of the individual plots
+prior_comparison_plot <- function(samples, var, binwidth, title, xlab){
+  p <- ggplot(samples) +
+    geom_histogram(aes(x= {{var}}, y = ..density.., fill = prior), color =infreq_palette["beige"], binwidth = binwidth) +
+    facet_grid(rows = vars(prior)) +
+    labs(title = title, x = xlab) +
+    theme(
+      strip.background = element_blank(),
+      strip.text = element_blank(),
+      axis.title.y = element_blank(),
+      axis.line.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      legend.position = "none"
+    )
+
+  return(p)
+}
+
+p1 <-   prior_comparison_plot(prior_samples,rho, 1, "Pairs of socks", "ρ") + scale_x_continuous(limits = c(0, 40))
+p2 <- prior_comparison_plot(prior_samples,sigma,1,  "Singleton socks", "σ") + scale_x_continuous(limits = c(0,40))
+p3 <-  prior_comparison_plot(prior_samples,n,5,  "Total socks", "2ρ + σ") + scale_x_continuous(limits = c(0,100))
+p4 <-   prior_comparison_plot(prior_samples,theta,0.05,  "Prop. single", "σ/(2ρ + σ)") +
+  scale_x_continuous(breaks = seq(0,1,by=0.2), labels = c("0",".2",".4",".6",".8","1"))
+
+p_row <- plot_grid(p1,p2,p3,p4,nrow = 1)
+
+p_legend <- get_legend(p1 + guides(fill = guide_legend(title = "Prior", nrow=2,byrow=TRUE)) +
+                         theme(
+                           legend.position = "bottom",
+                           # legend.title=element_blank(),
+                           legend.text=element_text(size=12))
+                       )
+
+p <-  plot_grid(p_row, p_legend, ncol = 1, rel_heights = c(1, 0.2))
+
+print(p)
+```
+
+```{r prior-comparison-table}
+prior_comparison_table <- prior_samples %>%
+  gather(measure, sample,-prior) %>%
+  group_by(Measure = measure, Prior = prior) %>%
+  summarise(
+    `10%` = quantile(sample, 0.1,na.rm=TRUE) %>% round(2) %>% as.character,
+    `25%` = quantile(sample, 0.25,na.rm=TRUE) %>% round(2) %>% as.character(),
+    `50%` = quantile(sample, 0.5,na.rm=TRUE) %>% round(2) %>% as.character(),
+    `75%` = quantile(sample, 0.75,na.rm=TRUE) %>% round(2) %>% as.character(),
+    `90%` = quantile(sample, 0.9,na.rm=TRUE) %>% round(2) %>% as.character()
+  ) %>%
+  mutate(across(ends_with("%"), ~if_else(Measure != "theta", str_remove(., ".\\d{2}"),.))) %>%
+  mutate(Measure = recode(Measure,
+                          rho = "Pairs of socks",
+                          sigma = "Singleton socks",
+                          n = "Total socks",
+                          theta = "Proportion single"),
+         Measure = if_else(Prior == 'Product', '', Measure)
+  )
+
+prior_comparison_table %>%
+  kable("pipe",digits = 2, align = "llrrrrr") %>%
+  # kable_styling(bootstrap_options = "condensed", full_width = FALSE, position = "center", font_size = 12) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+:::
+
+
+::: {.panel}
+[Density]{.panel-name}
+
+```{r density-comparison-plot, fig.height = 7, cache = TRUE}
+# function used for each of the individual plots
+prior_density_grid <- prior_samples %>%
+  count(prior, rho,sigma, name="density") %>%
+  group_by(prior) %>%
+  mutate(density=density/sum(density)) %>%
+  ungroup() %>%
+  spread(prior, density) %>%
+  filter(rho <= 30, sigma <= 10) %>%
+  replace_na(list(`Bååth` = 0.0001, Product=0.0001))
+
+density_max <- max(prior_density_grid$Bååth, prior_density_grid$Product)
+
+p_baath <- plot_sock_grid(prior_density_grid, `Bååth`) + 
+  scale_color_gradientn(
+    limits = c(0,density_max),
+    colours = wesanderson::wes_palette("Zissou1", 1000, type = "continuous"),
+    name = ""
+  ) +
+  theme(legend.position = "none") +
+  ggtitle("Bååth")
+
+p_product <- plot_sock_grid(prior_density_grid, `Product`) +
+  scale_color_gradientn(
+    limits = c(0,density_max),
+    colours = wesanderson::wes_palette("Zissou1", 1000, type = "continuous"),
+    name = ""
+  ) +
+  theme(legend.position = "none") +
+  ggtitle("Product")
+
+p_row <-  plot_grid(p_baath, p_product, nrow = 2)
+
+p_legend <- get_legend(p_baath + guides(fill = guide_legend(title = "Density")) +
+                         theme(
+                           legend.position = "bottom",
+                           legend.text=element_text(size=12))
+                       )
+
+p <-  plot_grid(p_row, p_legend, ncol = 1, rel_heights = c(1, 0.2))
+print(p)
+```
+:::
+
+:::::
+
+<aside>Comparison of B&aring;&aring;th's Prior and the Product Prior.</aside>
+
+The marginal distributions align closely, with the exception of the proportion of singleton socks which is more dispersed for the product prior. This is visible in the (empirical) density plot where Rasmus' prior clearly has a sharper peak, and is less dispersed in the $\sigma$-axis.
+
+The density plot also shows that the product prior is *smoother* over the parameter space - this is to be expected as defining Rasmus' prior requires a rounding/floor calculation (which is itself not smooth) to separate the total socks into pairs/singletons.
+
+Finally we can go ahead and derive the posterior using Bayes rule. The animation below shows how the posterior distribution changes with the observation of each additional distinct sock, up to $d=11$.
+
+
+```{r posterior-grid, echo = TRUE, code_folding = TRUE,cache = TRUE}
+# define the log product prior
+log_product_prior <- function(rho, sigma, r_rho, p_rho, r_sigma, p_sigma){
+
+  if(2*rho + sigma > 300){
+    log_prior <- -Inf
+  }
+  else{
+    # relies on the fact that variables r_rho, etc. have been defined in the global
+    # environment... This isn't really best practice.
+    log_prior <- dnbinom(rho, mu = mu_rho, size = r_rho, log = TRUE) + dnbinom(sigma, mu = mu_sigma, size = r_sigma, log = TRUE)
+  }
+  
+  return(log_prior)
+}
+
+# calculate posterior grid for each of d = 0,...,11 for animation
+iterated_posterior_grid <- map(0:11, .f =function(d){
+  
+  if(d == 0){
+    posterior_grid <- calculate_sock_grid(100, 100,
+        log_likelihood = NULL,
+        log_prior = function(rho,sigma){log_product_prior(rho,sigma, r_rho, p_rho, r_sigma, p_sigma)}
+      ) %>%
+      filter(rho <= 30, sigma <= 20) %>%
+      mutate(posterior =prior) %>%
+      add_column(d = d, .before = 0)
+  } else {
+    posterior_grid <- calculate_sock_grid(100, 100,
+        log_likelihood = function(rho,sigma){baath_log_likelihood(rho,sigma,d=d)},
+        log_prior = function(rho,sigma){log_product_prior(rho,sigma, r_rho, p_rho, r_sigma, p_sigma)}
+      ) %>%
+      filter(rho <= 30, sigma <= 20) %>%
+      add_column(d = d, .before = 0)
+  }
+  
+  return(posterior_grid)
+}) %>% bind_rows()
+
+# actual posterior grid
+posterior_grid <- iterated_posterior_grid %>% filter(d==11)
+```
+
+
+
+::::: {.panelset}
+
+::: {.panel}
+[Total Socks]{.panel-name}
+
+```{r posterior-density-plot, fig.height = 6}
+iterated_posterior <- iterated_posterior_grid %>%
+  group_by(d, n = 2 * ceiling((2*rho +sigma)/2)) %>%
+  summarise(posterior = sum(posterior), prior = sum(prior))
+
+animated_posterior <- ggplot(iterated_posterior) +
+  geom_col(aes(n, posterior), color = infreq_palette["beige"], fill = infreq_palette["darkblue"]) +
+  geom_col(aes(n, prior), color = paste0(infreq_palette["orange"],"66"), fill = NA) + 
+  geom_text(
+    aes(45, 0.0525, label = glue::glue("{d} distinct socks\n \t  observed")),
+    size = 6, hjust = 0, color =infreq_palette["darkblue"]
+  ) +
+  gganimate::transition_manual(d)
+
+animate(animated_posterior, end_pause = 5)
+```
+
+```{r}
+total_socks_posterior <- iterated_posterior %>%
+  filter(d %in% c(0,11)) %>%
+  mutate(distribution = if_else(d==0, "Prior", "Posterior"))
+
+posterior_summary_table <- total_socks_posterior %>%
+  group_by(` ` = distribution) %>%
+  summarise(
+    `10%` = quantile(n, 0.1,na.rm=TRUE),
+    `25%` = quantile(n, 0.25,na.rm=TRUE),
+    `50%` = quantile(n, 0.5,na.rm=TRUE),
+    `75%` = quantile(n, 0.75,na.rm=TRUE),
+    `90%` = quantile(n, 0.9,na.rm=TRUE)
+  )
+
+posterior_summary_table %>%
+  kable("pipe",digits = 0, align = "lrrrrr")
+```
+:::
+
+::: {.panel}
+[Posterior Grid]{.panel-name}
+
+```{r posterior-grid-plot,   fig.height = 6}
+plot_sock_grid(posterior_grid, posterior)
+```
+:::
+
+
+
+:::::
+
+## Acknowledgments {.appendix}
+
+This post was inspired by Karl Broman's [tweet](https://twitter.com/kwbroman/status/523221976001679360?ref_src=twsrc%5Etfw), and Rasmus B&aring;&aring;th's [analysis](http://www.sumsar.net/blog/2014/10/tiny-data-and-the-socks-of-karl-broman/).
+
+Computation has been done using R.
+
+
+## Computational Considerations {.appendix}
+
+In practice we use a couple of *tricks* when computing the likelihood function: avoiding the risk of encountering integer overflow when working with large sums of binomial coefficients.
+
+The first trick is probably familiar: rather than working with the likelihood, we'll use the *log-likelihood*. The log-likelihood for B&aring;&aring;th's model is:
 
 $$l(d|\rho,\sigma) = -\log \textstyle{\binom{2\rho + \sigma}{d}} + \log \bigg(\textstyle \sum_{j=0}^{\sigma} 2^{d-j} \binom{\sigma}{j} \binom{\rho}{d-j}\bigg)$$
 
-If we naively go ahead and calculate that sum and then take logs - then we won't avoid the risk of overflow at all: we'd still calculate a sum of large integers, and then taking the logarithm is an after thought.
+If we naively go ahead and calculate that sum and then take logs - then we won't avoid the risk of overflow at all: we'd still calculate a sum of large integers, and taking the logarithm becomes an after thought.
 
-What we really want to do is take the logarithm of the terms *inside* the summation - which will return values well within R's comfort zone. So more generally, we want to turn a computation of the form $\log \left( x_1 + \cdots + x_n\right)$ into a calculation in $\log(x_1),\ldots, \log(x_n)$.
+What we really want to do is take the logarithm of the terms *inside* the summation - which will return values well within computational comfort zone. That is we want to turn a computation of the form $\log \left( x_1 + \cdots + x_n\right)$ into a calculation in $\log(x_1),\ldots, \log(x_n)$.
 
 This is where trick number two comes in: the *log-sum-exp* trick.
 
@@ -324,59 +739,18 @@ and the trick follows by choosing $A = l^* = \max_k l_k$.
 
 :::::
 
-With computational considerations dealt with, we're in a position to visualise the log-likelihood function.
+Importantly subtracting the maximum guarantees that each of the terms to be exponentiated satisfies $l_k - l^* \leq 0$, and hence each exponential is bounded above by 1, avoiding any calculations at the limits of machine precision.
 
+## B&aring;&aring;th's Prior {.appendix}
 
-```{r, fig.height=6}
-# log likelihood for Baath's model
-baath_ll <- function(rho,sigma,d){
-  
-  # it is not possible to choose more than p+s distinct socks
-  if(d > rho + sigma) return(-Inf)
-  
-  # log summation terms, for the log-sum-exp trick.
-  log_summation_terms <- purrr::map(0:min(d, sigma), function(j){
-    (d-j)*log(2) + lchoose(sigma,j) + lchoose(rho,d-j)
-  })
-  
-  # the log likelihood
-  ll <- -lchoose(2*rho + sigma,d) +  matrixStats::logSumExp(log_summation_terms)
-  
-  return(ll)
-}
+Rasmus took the approach of defining the prior distribution in terms of a  distribution on the total number of socks and the proportion of these that are singletons.
 
+For Rasmus this choice doesn't create an issues, as its perfectly easy to sample sample from this prior, and hence to conduct ABC. However as we are looking to do exact Bayesian inference, we have to derive the explicit formula for the prior - and that isn't trivial.
 
-# function to calculate grid of prior/posterior likelihoods
-ll_grid <- function(rho_max,sigma_max,d, ll_fun, prior = NULL){
-  
-  grid <- crossing(p = 0:rho_max, s = 0:sigma_max, d = d) %>%
-    rowwise() %>% 
-    mutate(ll = ll_fun(p,s,d)) %>%
-    ungroup()
-  
-  return(grid)
-}
+It is, however, doable and leads to the following formula:
 
-baath_grid <- ll_grid(30, 20, 11, baath_ll)
+$$ P(\rho, \sigma) = P_{\mu, \tau}(2\rho + \sigma) \left\{ F_{\alpha,\beta}\left( \frac{2\rho + 1}{2 \lfloor \rho + \sigma/2\rfloor}\right) - F_{\alpha,\beta}\left( \frac{2\rho - 1}{2 \lfloor \rho + \sigma/2\rfloor}\right) \right\}$$
 
-ggplot() +
-  geom_point(data = baath_grid %>% filter(!is.infinite(ll)), aes(x = p, y = s, color =exp(ll)), size =4) +
-  geom_point(data = baath_grid %>% filter(is.infinite(ll)), aes(x = p, y = s,color=ll),shape = 1, size =4) +
-  # scale_color_gradientn(colours = c( infreq_palette["lightblue"], infreq_palette["orange"])) +
-  scale_color_gradientn(colours = wesanderson::wes_palette("Zissou1", 1000, type = "continuous")) +
-  labs(
-    title = "Bååth's likelihood",
-    x = "2ρ - Total socks that are in pairs",
-    y = "σ - Singleton socks",
-    colour = "BLikelihood"
-  ) +
-  theme(axis.line = element_blank()) 
+## Utility Functions {.appendix}
+```{r utility-functions, eval = FALSE, echo = TRUE, code_folding = TRUE}
 ```
-
-## Posterior Parameter Estimation
-
-We've done the hard work to derive and validate the likelihood, and now can reap the benefits: in this section I'll choose a prior distribution, and combine with the likelihood to get our posterior distribution on the number of socks Karl Broman washed. Along the way I'll talk through some subtleties you can employ to avoid numerical instability when calculating small probabilities.
-
-
-
-
