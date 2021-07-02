@@ -209,6 +209,8 @@ anim_stages <- animate(p,
 anim_save('_posts/2021-06-21-the-changing-shape-of-the-tour-de-france/img/tdf_shape.gif')
 ```
 
+## Comments
+
 ## Acknowledgments {.appendix}
 
 I first became interested in visualising how the Tour de France had changed over time after coming across Pierre Breteau's visualisation in [Le Monde](https://www.lemonde.fr/les-decodeurs/article/2017/06/29/combien-de-fois-le-tour-de-france-a-t-il-traverse-votre-departement_5153251_4355770.html), which shows the frequency with which each *département* of France has been visited by the race.
